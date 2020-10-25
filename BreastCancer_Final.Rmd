@@ -1,0 +1,830 @@
+---
+title: "Scientific Programming Breast Cancer Report"
+output: html_notebook
+---
+Interesting
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+# Load Packages and Data
+```{r}
+#- Load Packages -#
+#- Package names -#
+packages <- c("dplyr", "pcaMethods", "factoextra", "rgl", "pca3d", "randomForest", "caret", "cluster", "RColorBrewer", "plot3D", "plotly", "doParallel", "influential", "igraph", "ggraph")
+
+#- Install packages not yet installed -#
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(installed_packages == FALSE)) {
+  install.packages(packages[!installed_packages])
+}
+
+#- Packages loading -#
+invisible(lapply(packages, library, character.only = TRUE))
+```
+
+### Load Data
+```{r}
+#- Load Data -#
+setwd('/Users/ravinschmidl/Desktop/Systems_Bio/Scientific_Programming/Data')
+df <- read.csv('Breast_GSE45827.csv', check.names = FALSE)
+```
+
+# Data Exploration
+## what does the data look like?
+### Investigating Data Types
+```{r}
+print(paste0("Number of Unique Types: ", length(unique(df$type))))
+table(df$type)
+```
+```{r}
+barplot(sort(table(df$type)), xlab  = "Tissue Type", 
+        ylab = "Count",
+        main = "Number of Samples per Type" 
+        )
+```
+* Based on the above distribution, it seems that normal, cell_line and basal types contain too few/many samples.
+
+
+```{r}
+df_frame <- data.frame(matrix(unlist(df), nrow=length(df), byrow=T))
+df_frame <- t(df_frame)
+df_frame2 <- df_frame[,-(1:2)]
+#df_frame3 <- as.numeric(unlist(df_frame2))
+
+```
+
+### Checking the number of NA's, negatives and unique samples
+```{r}
+
+print(paste0("Number of Na values: ", sum(is.na(df))))
+print(paste0("Number of Negative values: ", sum(df_frame2 < 0)))
+print(paste0("Number of ID's: ", length(df$samples)))
+print(paste0("Number of Unique ID's: ", length(unique(df$samples))))
+```
+
+### Figure out and visualise spread of data. 
+```{r}
+hist(df_frame2, breaks = 1e6, xlim = c(0,20), main = "Entire Dataset")
+```
+
+### Figure out and visualise spread of data within classes.
+```{r}
+df_basal <- df[df$type == 'basal',]
+df_basal2 <- data.frame(matrix(unlist(df_basal), nrow=length(df_basal), byrow=T))
+df_basal2 <- t(df_basal2)
+df_basal2 <- df_basal2[,-(1:2)]
+#df_basal3 <- as.numeric(unlist(df_basal2))
+
+df_normal <- df[df$type == 'normal',]
+df_normal2 <- data.frame(matrix(unlist(df_normal), nrow=length(df_normal), byrow=T))
+df_normal2 <- t(df_normal2)
+df_normal2 <- df_normal2[,-(1:2)]
+#df_normal3 <- as.numeric(unlist(df_normal2))
+
+df_cell_line <- df[df$type == 'cell_line',]
+df_cell_line2 <- data.frame(matrix(unlist(df_cell_line), nrow=length(df_cell_line), byrow=T))
+df_cell_line2 <- t(df_cell_line2)
+df_cell_line2 <- df_cell_line2[,-(1:2)]
+#df_cell_line3 <- as.numeric(unlist(df_cell_line2))
+
+df_HER <- df[df$type == 'HER',]
+df_HER2 <- data.frame(matrix(unlist(df_HER), nrow=length(df_HER), byrow=T))
+df_HER2 <- t(df_HER2)
+df_HER2 <- df_HER2[,-(1:2)]
+#df_HER3 <- as.numeric(unlist(df_HER2))
+
+df_luminal_A <- df[df$type == 'luminal_A',]
+df_luminal_A2 <- data.frame(matrix(unlist(df_luminal_A), nrow=length(df_luminal_A), byrow=T))
+df_luminal_A2 <- t(df_luminal_A2)
+df_luminal_A2 <- df_luminal_A2[,-(1:2)]
+#df_luminal_A3 <- as.numeric(unlist(df_luminal_A))
+
+df_luminal_B <- df[df$type == 'luminal_B',]
+df_luminal_B2 <- data.frame(matrix(unlist(df_luminal_B), nrow=length(df_luminal_B), byrow=T))
+df_luminal_B2 <- t(df_luminal_B2)
+df_luminal_B2 <- df_luminal_B2[,-(1:2)]
+#df_luminal_B3 <- as.numeric(unlist(df_luminal_B2))
+
+par(mfrow=c(2,3))
+hist(df_basal2, breaks = 1e6, xlim = c(0,20), main = "Basal")
+hist(df_normal2, breaks = 1e6, xlim = c(0,20), main = "Normal")
+hist(df_cell_line2, breaks = 1e6, xlim = c(0,20), main = "Cell Line")
+hist(df_HER2, breaks = 1e6, xlim = c(0,20), main = "HER")
+hist(df_luminal_A2, breaks = 1e6, xlim = c(0,20), main = "Luminal A")
+hist(df_luminal_B2, breaks = 1e6, xlim = c(0,20), main = "Luminal B")
+
+```
+* We can see that the data seems to be quite skewed, so we will have to scale/normalise the data before proceeding. 
+
+* Maybe we should see what it looks like only with luminal-A, luminal-B and HER. 
+```{r}
+df_lalbher <- subset(df, type == "HER" | type == "luminal_A" | type == "luminal_B")
+
+df_lalbher2 <- data.frame(matrix(unlist(df_lalbher), nrow=length(df_lalbher), byrow=T))
+df_lalbher2 <- t(df_lalbher2)
+df_lalbher2 <- df_lalbher2[,-(1:2)]
+#df_lalbher3 <- as.numeric(unlist(df_lalbher2))
+
+hist(df_lalbher2, breaks = 1e6, xlim = c(0,20), main = "Luminal A, Luminal B and HER Dataset")
+#qqnorm(df_lalbher2, pch = 1, frame = FALSE)
+```
+* Hm, interesting; looks just the same
+
+# Prepocessing
+### Log transforming the data.  
+```{r}
+df_log <- log(df_frame2, 2)
+```
+
+### First plot the histogram of Log-Scaled Data
+```{r}
+hist(df_log, breaks = 1e6, xlim = c(0,5), main = "Log Transformed Data")
+
+```
+```{r}
+df_lalbher2_log <- log(df_lalbher2, 2)
+```
+
+### First plot the histogram of Log-Scaled Data
+```{r}
+hist(df_lalbher2_log, breaks = 1e6, xlim = c(0,5), main = "Log Transformed Data LALBHER")
+
+```
+
+# PCA
+* PCA  was performed with two functions:
+  ** prcomp
+  ** pca
+  
+## 2-Dimensional PCA plots
+```{r}
+df.PCA <- prcomp(df_log, scale = FALSE, center = TRUE)
+#df.PCA2 <- pca(df_log, scale = "none", center = TRUE)
+```
+```{r}
+summary(df.PCA)
+#summary(df.PCA2)
+```
+
+```{r}
+type <- factor(df[,2])
+#pca3d <- pca3d(df.PCA, group = type)sum
+```
+### Here are various Principal Components plotted against eachother. 
+```{r}
+fig1 <- plot_ly(x = df.PCA[["x"]][,1], y = df.PCA[["x"]][,2], 
+                type = "scatter", momde = "markers", color = type)
+
+fig2 <- plot_ly(x = df.PCA[["x"]][,1], y = df.PCA[["x"]][,3], 
+                type = "scatter", momde = "markers", color = type)
+
+fig3 <- plot_ly(x = df.PCA[["x"]][,1], y = df.PCA[["x"]][,4], 
+                type = "scatter", momde = "markers", color = type)
+
+fig4 <- plot_ly(x = df.PCA[["x"]][,1], y = df.PCA[["x"]][,5], 
+                type = "scatter", momde = "markers", color = type)
+
+fig5 <- plot_ly(x = df.PCA[["x"]][,2], y = df.PCA[["x"]][,3], 
+                type = "scatter", momde = "markers", color = type)
+
+fig6 <- plot_ly(x = df.PCA[["x"]][,2], y = df.PCA[["x"]][,4], 
+                type = "scatter", momde = "markers", color = type)
+
+fig7 <- plot_ly(x = df.PCA[["x"]][,2], y = df.PCA[["x"]][,5], 
+                type = "scatter", momde = "markers", color = type)
+
+fig8 <- plot_ly(x = df.PCA[["x"]][,3], y = df.PCA[["x"]][,4], 
+                type = "scatter", momde = "markers", color = type)
+
+fig9 <- plot_ly(x = df.PCA[["x"]][,3], y = df.PCA[["x"]][,5], 
+                type = "scatter", momde = "markers", color = type)
+
+fig10 <- plot_ly(x = df.PCA[["x"]][,4], y = df.PCA[["x"]][,5], 
+                 type = "scatter", momde = "markers", color = type)
+
+subplot(fig1, fig2)
+subplot(fig3, fig4)
+subplot(fig5, fig6)
+subplot(fig7, fig8)
+subplot(fig9, fig10)
+```
+## 3-Dimensional PCA plots
+```{r}
+f <- list(
+  family = "Courier New, monospace",
+  size = 18,
+  color = "#7f7f7f"
+)
+x <- list(
+  title = "PC1",
+  titlefont = f
+)
+y <- list(
+  title = "PC2",
+  titlefont = f
+)
+
+z <- list(
+  title = "PC3",
+  titlefont = f
+)
+fig11 <- plot_ly(x = df.PCA[["x"]][,1], 
+                 y = df.PCA[["x"]][,2], 
+                 z = df.PCA[["x"]][,3], 
+                 type="scatter3d", mode="markers", color=type)
+
+fig11 <- fig11 %>% layout(scene = list(xaxis = x, yaxis = y, zaxis = z), 
+                          title = "3D PCA clustering with type labelled")
+fig11
+
+```
+```{r}
+x2 <- list(
+  title = "PC2",
+  titlefont = f
+)
+y2 <- list(
+  title = "PC3",
+  titlefont = f
+)
+
+z2 <- list(
+  title = "PC4",
+  titlefont = f
+)
+fig12 <- plot_ly(x = df.PCA[["x"]][,2], 
+                 y = df.PCA[["x"]][,3], 
+                 z = df.PCA[["x"]][,4], 
+                 type="scatter3d", mode="markers", color=type)
+
+fig12 <- fig12 %>% layout(scene = list(xaxis = x2, yaxis = y2, zaxis = z2), 
+                          title = "3D PCA clustering with type labelled")
+fig12
+```
+
+# Random Forest
+## Unsupervised Random Forest
+* randomForest(formulalr, data) OR randomForest(x, y, xtest, ytest, ntree, mtry)
+* If using the second formula, we can omit y, forcing the formula to run an unsupervised random forest. 
+```{r}
+#- Clear global environment and reload packages-#
+rm(list=setdiff(ls(), "df"))
+#- Load files and libraries -#
+
+#Package names
+packages <- c("dplyr", "pcaMethods", "factoextra", "rgl", "pca3d", "randomForest", "caret", "cluster", "RColorBrewer", "plot3D", "plotly", "doParallel", "influential", "igraph", "ggraph", "randomForestExplainer")
+
+#Install packages not yet installed
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(installed_packages == FALSE)) {
+  install.packages(packages[!installed_packages])
+}
+
+#Packages loading
+invisible(lapply(packages, library, character.only = TRUE))
+
+setwd('/Users/ravinschmidl/Desktop/Systems_Bio/Scientific_Programming/Data')
+```
+```{r}
+#Log2  transform the data
+df_frame <- data.frame(matrix(unlist(df), nrow=length(df), byrow = T))
+df_frame <- t(df_frame)
+df_frame2 <- df_frame[,-(1:2)]
+#df_frame3 <- as.numeric(unlist(df_frame2))
+df_log <- log(df_frame2, 2)
+```
+```{r}
+#- Tune Random Forest Parameters -#
+set.seed(123)
+t <- tuneRF(df_log[,-22], df_log[,22], 
+                    stepFactor = 0.5,
+                    plot = TRUE,
+                    mtryStart = 8,
+                    ntreeTry = 801, 
+                    trace = TRUE, 
+                    improve = 0.05)
+```
+```{r}
+#- Run Random Forest -#
+cl <- makePSOCKcluster(5) 
+  
+registerDoParallel(cl) 
+set.seed(123)
+rf.fit <- randomForest(x = df_log, y = NULL, 
+                       mtry = 16, ntree = 801, 
+                       proximity = TRUE, oob.prox = TRUE)
+stopCluster(cl)
+
+```
+
+```{r}
+#- Getting prediction -#
+type <- factor(df[,2])
+prox <- rf.fit$proximity
+pam.rf <- pam(prox, 6)
+pred <- cbind(pam.rf$clustering, type)
+#table(pred[,2], pred[,1])
+confusionMatrix(table(pred[,2], pred[,1]))
+```
+```{r}
+
+hclust.rf <- hclust(as.dist(1-rf.fit$proximity))
+rf.cluster = cutree(hclust.rf, k=6)
+df_log$rf.clusters <- rf.cluster
+table(rf.cluster, type)
+confusionMatrix(table(rf.cluster, type))
+
+```
+
+```{r}
+#- 2-D MDS plot (Dim1 vs Dim2) -#
+mds1 <- MDSplot(rf.fit, type, k = 6, 
+               pch = 16, palette = c("skyblue", "orange", 
+                                     "green", "pink", 
+                                     "purple", "black")
+               )
+
+clusters_pam <- pam(1 - rf.fit$proximity, k = 6, diss = TRUE)
+
+plot(mds1$points[, 1], mds1$points[, 2], 
+     col = c("skyblue", "orange", 
+             "green", "pink", 
+             "purple", "black")[as.numeric(type)], 
+     main = "Type Clustering"
+     )
+
+legend("topleft", legend = c("basal", "cell_line", 
+                             "HER", "luminal_A", 
+                             "luminal_B", "normal"), 
+       pch = 16, col = c("skyblue", "orange", 
+                         "green", "pink", 
+                         "purple", "black"), 
+       title = "Legend"
+       )
+
+```
+```{r}
+#- 2-D MDS plot (Dim1 vs Dim3) -#
+
+clusters_pam <- pam(1 - rf.fit$proximity, k = 6, diss = TRUE)
+
+plot(mds1$points[, 1], mds1$points[, 3], 
+     col = c("skyblue", "orange", 
+             "green", "pink", 
+             "purple", "black")[as.numeric(type)], 
+     main = "Type Clustering"
+     )
+
+legend("topleft", legend = c("basal", "cell_line", 
+                             "HER", "luminal_A", 
+                             "luminal_B", "normal"), 
+       pch = 16, col = c("skyblue", "orange", 
+                         "green", "pink", 
+                         "purple", "black"), 
+       title = "Legend")
+```
+
+```{r}
+#- 2-D MDS plot (other dimensions) -#
+fig13 <- plot_ly(x = mds1[["points"]][,1], y = mds1[["points"]][,2], 
+                 type="scatter", mode="markers", color = type)
+
+fig14 <- plot_ly(x = mds1[["points"]][,2], y = mds1[["points"]][,3], 
+                 type="scatter", mode="markers", color = type)
+
+fig15 <- plot_ly(x = mds1[["points"]][,2], y = mds1[["points"]][,4], 
+                 type="scatter", mode="markers", color = type)
+
+fig16 <- plot_ly(x = mds1[["points"]][,2], y = mds1[["points"]][,5], 
+                 type="scatter", mode="markers", color = type)
+
+subplot(fig13, fig14)
+subplot(fig15, fig16)
+```
+
+
+```{r}
+#- 3-D MDS plot -#
+x3 <- list(
+  title = "Dim1"
+)
+y3 <- list(
+  title = "Dim2"
+)
+
+z3 <- list(
+  title = "Dim3"
+)
+
+clusters_pam_f <- factor(clusters_pam$clustering)
+
+fig17 <- plot_ly(x = mds1[["points"]][,1], 
+                 y = mds1[["points"]][,2], 
+                 z = mds1[["points"]][,3], 
+                 type="scatter3d", mode="markers", color = type)
+
+fig17 <- fig17 %>% layout(scene = list(xaxis = x3, yaxis = y3, zaxis = z3), title = "3D RF clustering with type labelled")
+fig17
+
+x3 <- list(
+  title = "Dim1"
+)
+y3 <- list(
+  title = "Dim2"
+)
+
+z3 <- list(
+  title = "Dim4"
+)
+fig18 <- plot_ly(x = mds1[["points"]][,1], 
+                 y = mds1[["points"]][,2], 
+                 z = mds1[["points"]][,4], 
+                 type="scatter3d", mode="markers", color = clusters_pam_f)
+
+fig18 <- fig18 %>% layout(scene = list(xaxis = x3, yaxis = y3, zaxis = z3), title = "3D RF clustering with clusters labelled")
+fig18
+
+x3 <- list(
+  title = "Dim1"
+)
+y3 <- list(
+  title = "Dim3"
+)
+
+z3 <- list(
+  title = "Dim4"
+)
+fig19 <- plot_ly(x = mds1[["points"]][,1], 
+                 y = mds1[["points"]][,3], 
+                 z = mds1[["points"]][,4], 
+                 type="scatter3d", mode="markers", color = type)
+
+fig19 <- fig19 %>% layout(scene = list(xaxis = x3, yaxis = y3, zaxis = z3), title = "3D RF clustering with type labelled")
+fig19
+
+x3 <- list(
+  title = "Dim2"
+)
+y3 <- list(
+  title = "Dim3"
+)
+
+z3 <- list(
+  title = "Dim4"
+)
+fig20 <- plot_ly(x = mds1[["points"]][,2], 
+                 y = mds1[["points"]][,3], 
+                 z = mds1[["points"]][,4], 
+                 type="scatter3d", mode="markers", color = clusters_pam_f)
+
+fig20 <- fig20 %>% layout(scene = list(xaxis = x3, yaxis = y3, zaxis = z3), title = "3D RF clustering with clusters labelled")
+fig20
+```
+## Supervised Random Forest
+* Based on the previous diagrams and depending on the results of the upcoming supervised RF 
+performed on all separate classes, I might combine luminal_A and luminal_B into one class named luminal
+
+```{r}
+#- Clear global environment and reload packages -#
+rm(list=setdiff(ls(), "df"))
+
+#- Load files and libraries -#
+
+# Package names #
+packages <- c("dplyr", "pcaMethods", "factoextra", "rgl", "pca3d", "randomForest", "caret", "cluster", "RColorBrewer", "plot3D", "plotly", "doParallel", "influential", "igraph", "ggraph", "randomForestExplainer")
+
+# Install packages not yet installed #
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(installed_packages == FALSE)) {
+  install.packages(packages[!installed_packages])
+}
+
+# Packages loading #
+invisible(lapply(packages, library, character.only = TRUE))
+```
+```{r}
+#- Log Transform Data -#
+df2 <- df
+df2[,-c(1,2)] <- log(df2[,-c(1,2)], 2)
+
+#- Create Training and Test Data  -#
+set.seed(998)
+inTrain <- createDataPartition(df2$samples, p = 0.75, list = FALSE)
+df_train <- df2[inTrain,]
+df_test <- df2[-inTrain,]
+```
+
+```{r}
+#- Check Training and Test Data -#
+print(paste0("Dim of Df: ", 
+             dim(df2[,-c(1,2)])
+             )
+      )
+
+print(paste0("Dim of Df_train: ", 
+             dim(df_train[,-c(1,2)])
+             )
+      )
+
+print(paste0("df_train/df_log = ",
+             dim(df_train[,-c(1,2)])[1] / dim(df2[,-c(1,2)])[1] * 100, 
+             " %"
+             )
+      )
+
+print(paste0("Dim of Df_test: ", 
+             dim(df_test[,-c(1,2)])
+             )
+      )
+
+print(paste0("df_test/df_log = ",
+             dim(df_test[,-c(1,2)])[1] / dim(df2[,-c(1,2)])[1] * 100, 
+             " %"
+             )
+      )
+```
+
+```{r}
+#- Create factor of labels -#
+train_labels <- factor(df_train[,2])
+
+test_labels <- factor(df_test[,2])
+```
+```{r}
+#- RF Parameter Tuning -#
+cl <- makePSOCKcluster(5) 
+  
+registerDoParallel(cl) 
+set.seed(123)
+t2 <- tuneRF(df_train[,-22], df_train[,22], 
+                    stepFactor = 0.5,
+                    plot = TRUE,
+                    mtryStart = 10,
+                    ntreeTry = 801, 
+                    trace = TRUE, 
+                    improve = 0.05)
+stopCluster(cl)
+
+```
+```{r}
+#- Run Random Forest -#
+cl <- makePSOCKcluster(5) 
+  
+registerDoParallel(cl) 
+set.seed(123)
+rf.fit2 <- randomForest(df_train[,-c(1,2)], train_labels, 
+                        mtry = 10, ntree = 1001, 
+                        proximity = TRUE, oob.prox = TRUE,
+                        localImp = TRUE)  
+
+stopCluster(cl)
+
+rf.fit2
+```
+
+```{r}
+#- Plot rf.fit -#
+plot(rf.fit2)
+```
+* We can see that the model has a low error rate, lets see the conusion matrix of the predictions of the training set. 
+```{r}
+#- Plot confusion mmatrix of predictions (-#
+confusionMatrix(table(train_labels, rf.fit2$predicted))
+```
+* Overall, it seems to have high accuracy for all  of them, however this may be a sign of overfitting. 
+```{r}
+#- Using Trained Random Forest to predict test set -#
+pred = predict(rf.fit2, as.matrix(df_test))
+confusionMatrix(table(test_labels, pred))
+```
+*  Extremely high accuracy, Signs of overfitting. 
+```{r}
+prob = predict(rf.fit2, as.matrix(df_test), type = "prob")
+prob
+```
+```{r}
+#- 2-D MDS plot (Dim1 vs Dim2) -#
+mds2 <- MDSplot(rf.fit2, train_labels, k = 6, 
+               pch = 16, palette = c("skyblue", "orange", 
+                                     "green", "pink", 
+                                     "purple", "black")
+               )
+
+plot(mds2$points[, 1], mds2$points[, 2], 
+     col = c("skyblue", "orange", 
+             "green", "pink", 
+             "purple", "black")[as.numeric(train_labels)], 
+     main = "Type Clustering"
+     )
+
+legend("topleft", legend = c("basal", "cell_line", 
+                             "HER", "luminal_A", 
+                             "luminal_B", "normal"), 
+       pch = 16, col = c("skyblue", "orange", 
+                         "green", "pink", 
+                         "purple", "black"), 
+       title = "Legend"
+       )
+```
+```{r}
+#- 2-D MDS plot (Dim1 vs Dim3) -#
+plot(mds2$points[, 1], mds2$points[, 3], 
+     col = c("skyblue", "orange", 
+             "green", "pink", 
+             "purple", "black")[as.numeric(train_labels)], 
+     main = "Type Clustering"
+     )
+
+legend("topleft", legend = c("basal", "cell_line", 
+                             "HER", "luminal_A", 
+                             "luminal_B", "normal"), 
+       pch = 16, col = c("skyblue", "orange", 
+                         "green", "pink", 
+                         "purple", "black"), 
+       title = "Legend"
+       )
+```
+```{r}
+#- 2-D MDS plot (other dimensions) -#
+fig21 <- plot_ly(x = mds2[["points"]][,1], y = mds2[["points"]][,2], 
+                 type="scatter", mode="markers", 
+                 color = c("skyblue", "orange", 
+                           "green", "pink", 
+                           "purple", "black")[as.numeric(train_labels)])
+
+fig22 <- plot_ly(x = mds2[["points"]][,2], y = mds2[["points"]][,3], 
+                 type="scatter", mode="markers", 
+                 color = c("skyblue", "orange", 
+                           "green", "pink", 
+                           "purple", "black")[as.numeric(train_labels)])
+
+fig23 <- plot_ly(x = mds2[["points"]][,2], y = mds2[["points"]][,4], 
+                 type="scatter", mode="markers", 
+                 color = c("skyblue", "orange", 
+                           "green", "pink", 
+                           "purple", "black")[as.numeric(train_labels)])
+
+fig24 <- plot_ly(x = mds2[["points"]][,2], y = mds2[["points"]][,5], 
+                 type="scatter", mode="markers", 
+                 color = c("skyblue", "orange", 
+                           "green", "pink", 
+                           "purple", "black")[as.numeric(train_labels)])
+
+subplot(fig21, fig22)
+subplot(fig23, fig24)
+```
+
+
+```{r}
+#- 3-D MDS plot -#
+x3 <- list(
+  title = "Dim1"
+)
+y3 <- list(
+  title = "Dim2"
+)
+
+z3 <- list(
+  title = "Dim3"
+)
+fig25 <- plot_ly(x = mds2[["points"]][,1], 
+                 y = mds2[["points"]][,2], 
+                 z = mds2[["points"]][,3], 
+                 type="scatter3d", mode="markers", 
+                 color = c("skyblue","orange",
+                           "green", "pink",
+                           "purple", "black")[as.numeric(train_labels)]
+                 )
+
+fig25 <- fig25 %>% layout(scene = list(xaxis = x3, yaxis = y3, zaxis = z3), title = "3D RF clustering with type labelled")
+fig25
+```
+```{r}
+
+x3 <- list(
+  title = "Dim1"
+)
+y3 <- list(
+  title = "Dim2"
+)
+
+z3 <- list(
+  title = "Dim4"
+)
+fig26 <- plot_ly(x = mds2[["points"]][,1], 
+                 y = mds2[["points"]][,2], 
+                 z = mds2[["points"]][,4], 
+                 type="scatter3d", mode="markers", 
+                 color = c("skyblue","orange",
+                           "green", "pink",
+                           "purple", "black")[as.numeric(train_labels)]
+                 )
+
+fig26 <- fig26 %>% layout(scene = list(xaxis = x3, yaxis = y3, zaxis = z3), title = "3D RF clustering with clusters labelled")
+fig26
+
+```
+
+```{r}
+x3 <- list(
+  title = "Dim1"
+)
+y3 <- list(
+  title = "Dim3"
+)
+
+z3 <- list(
+  title = "Dim4"
+)
+fig27 <- plot_ly(x = mds2[["points"]][,1], 
+                 y = mds2[["points"]][,3], 
+                 z = mds2[["points"]][,4], 
+                 type="scatter3d", mode="markers", 
+                 color = c("skyblue","orange",
+                           "green", "pink",
+                           "purple", "black")[as.numeric(train_labels)]
+                 )
+
+fig27 <- fig27 %>% layout(scene = list(xaxis = x3, yaxis = y3, zaxis = z3), title = "3D RF clustering with type labelled")
+fig27
+```
+
+```{r}
+x3 <- list(
+  title = "Dim2"
+)
+y3 <- list(
+  title = "Dim3"
+)
+
+z3 <- list(
+  title = "Dim4"
+)
+fig28 <- plot_ly(x = mds2[["points"]][,2], 
+                 y = mds2[["points"]][,3], 
+                 z = mds2[["points"]][,4], 
+                 type="scatter3d", mode="markers", 
+                 color = c("skyblue","orange",
+                           "green", "pink",
+                           "purple", "black")[as.numeric(train_labels)]
+                 )
+
+fig28 <- fig28 %>% layout(scene = list(xaxis = x3, yaxis = y3, zaxis = z3), title = "3D RF clustering with clusters labelled")
+fig28
+```
+```{r}
+tree <- getTree(rf.fit2, 6, labelVar=TRUE) %>%
+    tibble::rownames_to_column() %>%
+    # make leaf split points to NA, so the 0s won't get plotted
+    mutate(`split point` = ifelse(is.na(prediction), `split point`, NA))
+  
+  # prepare data frame for graph
+  graph_frame <- data.frame(from = rep(tree$rowname, 2),
+                            to = c(tree$`left daughter`, tree$`right daughter`))
+  
+  # convert to graph and delete the last node that we don't want to plot
+  graph <- graph_from_data_frame(graph_frame) %>%
+    delete_vertices("0")
+  
+  # set node labels
+  V(graph)$node_label <- gsub("_", " ", as.character(tree$`split var`))
+  V(graph)$leaf_label <- as.character(tree$prediction)
+  V(graph)$split <- as.character(round(tree$`split point`, digits = 2))
+  
+  # plot
+  plot <- ggraph(graph, 'dendrogram') + 
+    theme_bw() +
+    geom_edge_link() +
+    geom_node_point() +
+    geom_node_label(aes(label = split), vjust = 2.5, 
+                    na.rm = TRUE, fill = "white") +
+    geom_node_label(aes(label = leaf_label, fill = leaf_label), 
+                    na.rm = TRUE, repel = TRUE, colour = "white", 
+                    fontface = "bold", show.legend = FALSE) +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.background = element_blank(),
+          plot.background = element_rect(fill = "white"),
+          panel.border = element_blank(),
+          axis.line = element_blank(),
+          axis.text.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          plot.title = element_text(size = 18))
+  
+  print(plot)
+
+
+```
+```{r}
+#Outputs a html file: Your_forest_explained.html
+explain_forest(rf.fit2, interactions = FALSE, data = df_train)
+```
+
+
+
+
+
